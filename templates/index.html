@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CCTV Replayer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(245, 158, 11, 0.16), transparent 28%),
+        linear-gradient(180deg, #020617, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(1180px, calc(100% - 32px));
+      margin: 24px auto;
+    }
+
+    .panel {
+      background: rgba(17, 24, 39, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 18px;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    h1,
+    h2 {
+      margin: 0 0 12px;
+    }
+
+    h1 {
+      font-size: 28px;
+    }
+
+    h2 {
+      font-size: 18px;
+      color: var(--muted);
+      margin-top: 24px;
+    }
+
+    .toolbar,
+    .range-grid {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .toolbar {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .range-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    select,
+    button,
+    video {
+      width: 100%;
+    }
+
+    select,
+    button {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    button {
+      width: auto;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toggle input {
+      margin: 0;
+    }
+
+    .viewer,
+    .range-panel {
+      background: #020617;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    video {
+      width: 100%;
+      max-height: 65vh;
+      border-radius: 12px;
+      background: #000;
+      display: block;
+    }
+
+    .meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status {
+      color: var(--muted);
+      margin-top: 14px;
+      min-height: 22px;
+    }
+
+    @media (max-width: 900px) {
+      .toolbar,
+      .range-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .controls button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>CCTV Replayer</h1>
+
+      <div class="toolbar">
+        <div>
+          <label for="cameraSelect">Camera</label>
+          <select id="cameraSelect"></select>
+        </div>
+        <div>
+          <label for="dateSelect">Date</label>
+          <select id="dateSelect"></select>
+        </div>
+        <div>
+          <label for="clipSelect">Clip Start</label>
+          <select id="clipSelect"></select>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div>
+          <label for="speedSelect">Playback Speed</label>
+          <select id="speedSelect">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1.0x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2.0x</option>
+            <option value="3">3.0x</option>
+            <option value="4">4.0x</option>
+          </select>
+        </div>
+        <div class="toggle">
+          <input type="checkbox" id="autoNextCheckbox" checked>
+          <label for="autoNextCheckbox">Auto play next clip</label>
+        </div>
+        <div class="toggle">
+          <input type="checkbox" id="includeSyncCheckbox">
+          <label for="includeSyncCheckbox">Include same-time clips from other cameras</label>
+        </div>
+        <button type="button" id="prevButton">Prev Clip</button>
+        <button type="button" id="nextButton">Next Clip</button>
+        <button type="button" id="downloadButton">Download Current</button>
+      </div>
+
+      <div class="viewer">
+        <video id="clipVideo" controls playsinline preload="metadata"></video>
+        <div class="meta">
+          <div id="clipName">No clip loaded</div>
+          <div id="clipCount">0 / 0</div>
+        </div>
+        <div class="status" id="statusText"></div>
+      </div>
+
+      <h2>Range Download</h2>
+      <div class="range-panel">
+        <div class="range-grid">
+          <div>
+            <label for="rangeStartDateSelect">Start Date</label>
+            <select id="rangeStartDateSelect"></select>
+          </div>
+          <div>
+            <label for="rangeStartClipSelect">Start Clip</label>
+            <select id="rangeStartClipSelect"></select>
+          </div>
+          <div>
+            <label for="rangeEndDateSelect">End Date</label>
+            <select id="rangeEndDateSelect"></select>
+          </div>
+          <div>
+            <label for="rangeEndClipSelect">End Clip</label>
+            <select id="rangeEndClipSelect"></select>
+          </div>
+        </div>
+        <div class="controls">
+          <button type="button" id="downloadRangeButton">Download Range ZIP</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const cameraSelect = document.getElementById("cameraSelect");
+    const dateSelect = document.getElementById("dateSelect");
+    const clipSelect = document.getElementById("clipSelect");
+    const speedSelect = document.getElementById("speedSelect");
+    const autoNextCheckbox = document.getElementById("autoNextCheckbox");
+    const includeSyncCheckbox = document.getElementById("includeSyncCheckbox");
+    const prevButton = document.getElementById("prevButton");
+    const nextButton = document.getElementById("nextButton");
+    const downloadButton = document.getElementById("downloadButton");
+    const downloadRangeButton = document.getElementById("downloadRangeButton");
+    const rangeStartDateSelect = document.getElementById("rangeStartDateSelect");
+    const rangeStartClipSelect = document.getElementById("rangeStartClipSelect");
+    const rangeEndDateSelect = document.getElementById("rangeEndDateSelect");
+    const rangeEndClipSelect = document.getElementById("rangeEndClipSelect");
+    const clipVideo = document.getElementById("clipVideo");
+    const clipName = document.getElementById("clipName");
+    const clipCount = document.getElementById("clipCount");
+    const statusText = document.getElementById("statusText");
+
+    let clips = [];
+    let currentClipIndex = -1;
+    let dates = [];
+    const clipCache = new Map();
+
+    function setStatus(text) {
+      statusText.textContent = text;
+    }
+
+    async function fetchJson(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+      return response.json();
+    }
+
+    function fillSelect(select, items, placeholder) {
+      select.innerHTML = "";
+      if (!items.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = placeholder;
+        select.appendChild(option);
+        return;
+      }
+
+      items.forEach((item) => {
+        const option = document.createElement("option");
+        if (typeof item === "string") {
+          option.value = item;
+          option.textContent = item;
+        } else {
+          option.value = item.id || item.name;
+          option.textContent = item.label || item.name || item.id;
+        }
+        select.appendChild(option);
+      });
+    }
+
+    function applyPlaybackRate() {
+      clipVideo.playbackRate = Number(speedSelect.value || "1");
+    }
+
+    function clipStartToken(name) {
+      if (!name) {
+        return "";
+      }
+
+      const basename = name.replace(/\.[^.]+$/, "");
+      const parts = basename.split("_");
+      if (parts.length < 3) {
+        return "";
+      }
+      return parts[2];
+    }
+
+    function parseDateValue(value) {
+      if (!value) {
+        return Number.NaN;
+      }
+      return Date.parse(`${value}T00:00:00`);
+    }
+
+    function findNearestDate(preferredDate, availableDates) {
+      if (!availableDates.length) {
+        return "";
+      }
+      if (!preferredDate) {
+        return availableDates[0];
+      }
+      if (availableDates.includes(preferredDate)) {
+        return preferredDate;
+      }
+
+      const preferredTime = parseDateValue(preferredDate);
+      if (Number.isNaN(preferredTime)) {
+        return availableDates[0];
+      }
+
+      let nearestDate = availableDates[0];
+      let nearestDistance = Math.abs(parseDateValue(nearestDate) - preferredTime);
+      for (const candidate of availableDates.slice(1)) {
+        const candidateDistance = Math.abs(parseDateValue(candidate) - preferredTime);
+        if (candidateDistance < nearestDistance) {
+          nearestDate = candidate;
+          nearestDistance = candidateDistance;
+        }
+      }
+      return nearestDate;
+    }
+
+    function clipTokenToSeconds(token) {
+      if (!token) {
+        return Number.NaN;
+      }
+      const parts = token.split("-");
+      if (parts.length < 2) {
+        return Number.NaN;
+      }
+      const [hh, mm, ss = "0"] = parts.map((item) => Number(item));
+      if ([hh, mm, ss].some(Number.isNaN)) {
+        return Number.NaN;
+      }
+      return (hh * 3600) + (mm * 60) + ss;
+    }
+
+    function clipDateTimeValue(dateValue, clipToken) {
+      if (!dateValue) {
+        return Number.NaN;
+      }
+      const normalizedToken = clipToken || "00-00-00";
+      return Date.parse(`${dateValue}T${normalizedToken.replaceAll("-", ":")}`);
+    }
+
+    function findNearestClipIndex(preferredClipToken, availableClips) {
+      if (!availableClips.length) {
+        return -1;
+      }
+      if (!preferredClipToken) {
+        return 0;
+      }
+
+      const exactIndex = availableClips.findIndex(
+        (item) => clipStartToken(item.name) === preferredClipToken
+      );
+      if (exactIndex >= 0) {
+        return exactIndex;
+      }
+
+      const preferredSeconds = clipTokenToSeconds(preferredClipToken);
+      if (Number.isNaN(preferredSeconds)) {
+        return 0;
+      }
+
+      let nearestIndex = 0;
+      let nearestDistance = Math.abs(
+        clipTokenToSeconds(clipStartToken(availableClips[0].name)) - preferredSeconds
+      );
+      for (let index = 1; index < availableClips.length; index += 1) {
+        const candidateSeconds = clipTokenToSeconds(clipStartToken(availableClips[index].name));
+        if (Number.isNaN(candidateSeconds)) {
+          continue;
+        }
+        const candidateDistance = Math.abs(candidateSeconds - preferredSeconds);
+        if (candidateDistance < nearestDistance) {
+          nearestIndex = index;
+          nearestDistance = candidateDistance;
+        }
+      }
+      return nearestIndex;
+    }
+
+    async function findNearestClipSelection(cameraId, availableDates, preferredDate, preferredClipToken) {
+      if (!availableDates.length) {
+        return {
+          date: "",
+          clips: [],
+          clipIndex: -1,
+        };
+      }
+
+      if (!preferredDate) {
+        const fallbackDate = availableDates[0];
+        const fallbackClips = await getClipsForDate(cameraId, fallbackDate);
+        return {
+          date: fallbackDate,
+          clips: fallbackClips,
+          clipIndex: fallbackClips.length ? 0 : -1,
+        };
+      }
+
+      const targetValue = clipDateTimeValue(preferredDate, preferredClipToken);
+      if (Number.isNaN(targetValue)) {
+        const fallbackDate = findNearestDate(preferredDate, availableDates);
+        const fallbackClips = await getClipsForDate(cameraId, fallbackDate);
+        return {
+          date: fallbackDate,
+          clips: fallbackClips,
+          clipIndex: findNearestClipIndex(preferredClipToken, fallbackClips),
+        };
+      }
+
+      let bestDate = "";
+      let bestClips = [];
+      let bestIndex = -1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      for (const candidateDate of availableDates) {
+        const candidateClips = await getClipsForDate(cameraId, candidateDate);
+        if (!candidateClips.length) {
+          continue;
+        }
+
+        for (let index = 0; index < candidateClips.length; index += 1) {
+          const candidateToken = clipStartToken(candidateClips[index].name);
+          const candidateValue = clipDateTimeValue(candidateDate, candidateToken);
+          if (Number.isNaN(candidateValue)) {
+            continue;
+          }
+
+          const distance = Math.abs(candidateValue - targetValue);
+          if (distance < bestDistance) {
+            bestDate = candidateDate;
+            bestClips = candidateClips;
+            bestIndex = index;
+            bestDistance = distance;
+          }
+        }
+      }
+
+      if (!bestDate) {
+        const fallbackDate = availableDates[0];
+        const fallbackClips = await getClipsForDate(cameraId, fallbackDate);
+        return {
+          date: fallbackDate,
+          clips: fallbackClips,
+          clipIndex: fallbackClips.length ? 0 : -1,
+        };
+      }
+
+      return {
+        date: bestDate,
+        clips: bestClips,
+        clipIndex: bestIndex,
+      };
+    }
+
+    function clearVideo() {
+      clipVideo.pause();
+      clipVideo.removeAttribute("src");
+      clipVideo.load();
+      clipName.textContent = "No clip loaded";
+      clipCount.textContent = "0 / 0";
+      currentClipIndex = -1;
+      downloadButton.disabled = true;
+    }
+
+    function playWhenReady() {
+      const startPlayback = () => {
+        applyPlaybackRate();
+        clipVideo.play().catch(() => {
+          setStatus("Next clip loaded. Press play if the browser blocked autoplay.");
+        });
+      };
+
+      if (clipVideo.readyState >= 1) {
+        startPlayback();
+        return;
+      }
+
+      clipVideo.addEventListener("loadedmetadata", startPlayback, { once: true });
+    }
+
+    function renderClipAtIndex(index, options = {}) {
+      if (index < 0 || index >= clips.length) {
+        clearVideo();
+        return;
+      }
+
+      const { autoplay = false } = options;
+      const clip = clips[index];
+      currentClipIndex = index;
+      clipSelect.value = clip.name;
+      clipVideo.src = clip.url;
+      clipVideo.load();
+      clipName.textContent = clip.name;
+      clipCount.textContent = `${currentClipIndex + 1} / ${clips.length}`;
+      downloadButton.disabled = false;
+      applyPlaybackRate();
+
+      if (autoplay) {
+        playWhenReady();
+      }
+    }
+
+    function cacheKey(cameraId, date) {
+      return `${cameraId}|${date}`;
+    }
+
+    async function getClipsForDate(cameraId, date) {
+      if (!cameraId || !date) {
+        return [];
+      }
+
+      const key = cacheKey(cameraId, date);
+      if (clipCache.has(key)) {
+        return clipCache.get(key);
+      }
+
+      const data = await fetchJson(
+        `/api/clips?camera_id=${encodeURIComponent(cameraId)}&date=${encodeURIComponent(date)}`
+      );
+      clipCache.set(key, data.clips);
+      return data.clips;
+    }
+
+    function resetRangeControls() {
+      fillSelect(rangeStartDateSelect, [], "No dates");
+      fillSelect(rangeEndDateSelect, [], "No dates");
+      fillSelect(rangeStartClipSelect, [], "No clips");
+      fillSelect(rangeEndClipSelect, [], "No clips");
+      downloadRangeButton.disabled = true;
+    }
+
+    async function populateRangeDates() {
+      fillSelect(rangeStartDateSelect, dates, "No dates");
+      fillSelect(rangeEndDateSelect, dates, "No dates");
+
+      if (!dates.length) {
+        resetRangeControls();
+        return;
+      }
+
+      rangeStartDateSelect.value = dateSelect.value;
+      rangeEndDateSelect.value = dateSelect.value;
+      await refreshRangeClipSelects(true);
+      downloadRangeButton.disabled = false;
+    }
+
+    async function refreshRangeClipSelects(resetToPlayback = false) {
+      const cameraId = cameraSelect.value;
+      const startDate = rangeStartDateSelect.value;
+      const endDate = rangeEndDateSelect.value;
+
+      const [startClips, endClips] = await Promise.all([
+        getClipsForDate(cameraId, startDate),
+        getClipsForDate(cameraId, endDate),
+      ]);
+
+      fillSelect(rangeStartClipSelect, startClips, "No clips");
+      fillSelect(rangeEndClipSelect, endClips, "No clips");
+
+      if (resetToPlayback && clips.length && dateSelect.value === startDate) {
+        rangeStartClipSelect.value = clipSelect.value;
+      } else if (startClips.length) {
+        rangeStartClipSelect.value = startClips[0].name;
+      }
+
+      if (resetToPlayback && clips.length && dateSelect.value === endDate) {
+        rangeEndClipSelect.value = clipSelect.value;
+      } else if (endClips.length) {
+        rangeEndClipSelect.value = endClips[endClips.length - 1].name;
+      }
+    }
+
+    async function loadDates(options = {}) {
+      const {
+        preferredDate = "",
+        preferredClipToken = "",
+      } = options;
+      const cameraId = cameraSelect.value;
+      fillSelect(dateSelect, [], "No dates");
+      fillSelect(clipSelect, [], "No clips");
+      dates = [];
+      clipCache.clear();
+      clips = [];
+      clearVideo();
+      resetRangeControls();
+
+      if (!cameraId) {
+        return;
+      }
+
+      const data = await fetchJson(`/api/dates?camera_id=${encodeURIComponent(cameraId)}`);
+      dates = data.dates;
+      fillSelect(dateSelect, dates, "No dates");
+      if (dates.length) {
+        const nearestSelection = await findNearestClipSelection(
+          cameraId,
+          dates,
+          preferredDate,
+          preferredClipToken
+        );
+        dateSelect.value = nearestSelection.date || findNearestDate(preferredDate, dates);
+        if (nearestSelection.clips.length) {
+          fillSelect(clipSelect, nearestSelection.clips, "No clips");
+          clips = nearestSelection.clips;
+          const clipIndex = nearestSelection.clipIndex >= 0 ? nearestSelection.clipIndex : 0;
+          renderClipAtIndex(clipIndex);
+          setStatus(`${clips.length} clip(s) available for the selected date.`);
+        } else {
+          await loadClips({ preferredClipToken });
+        }
+        await populateRangeDates();
+      } else {
+        setStatus("No recordings found for the selected camera.");
+      }
+    }
+
+    async function loadClips(options = {}) {
+      const {
+        preferredClipToken = "",
+      } = options;
+      const cameraId = cameraSelect.value;
+      const date = dateSelect.value;
+      fillSelect(clipSelect, [], "No clips");
+      clips = [];
+      clearVideo();
+
+      if (!cameraId || !date) {
+        return;
+      }
+
+      clips = await getClipsForDate(cameraId, date);
+      fillSelect(clipSelect, clips, "No clips");
+
+      if (clips.length) {
+        let clipIndex = findNearestClipIndex(preferredClipToken, clips);
+        if (clipIndex < 0) {
+          clipIndex = 0;
+        }
+        renderClipAtIndex(clipIndex);
+        setStatus(`${clips.length} clip(s) available for the selected date.`);
+      } else {
+        setStatus("No video clips found on the selected date.");
+      }
+    }
+
+    function moveClip(offset, autoplay = false) {
+      if (!clips.length) {
+        return;
+      }
+
+      const nextIndex = currentClipIndex + offset;
+      if (nextIndex < 0 || nextIndex >= clips.length) {
+        setStatus("No more clips in this list.");
+        return;
+      }
+
+      renderClipAtIndex(nextIndex, { autoplay });
+      setStatus(`Loaded clip ${nextIndex + 1} of ${clips.length}.`);
+    }
+
+    function triggerDownload(url) {
+      const link = document.createElement("a");
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    function compareRange() {
+      const startDate = rangeStartDateSelect.value;
+      const endDate = rangeEndDateSelect.value;
+      const startName = rangeStartClipSelect.value;
+      const endName = rangeEndClipSelect.value;
+
+      if (!startDate || !endDate || !startName || !endName) {
+        return { ok: false, message: "Select a valid start/end range first." };
+      }
+      if (startDate > endDate) {
+        return { ok: false, message: "Start date must be earlier than end date." };
+      }
+      if (startDate === endDate && startName > endName) {
+        return { ok: false, message: "Start clip must be earlier than end clip." };
+      }
+      return { ok: true };
+    }
+
+    async function init() {
+      const data = await fetchJson("/api/cameras");
+      fillSelect(cameraSelect, data.cameras, "No cameras");
+      if (data.cameras.length) {
+        await loadDates();
+        setStatus("Select a clip to replay recorded video.");
+      } else {
+        setStatus("No enabled cameras in setting.json.");
+      }
+    }
+
+    cameraSelect.addEventListener("change", () => {
+      const previousDate = dateSelect.value;
+      const previousClipName =
+        currentClipIndex >= 0 && currentClipIndex < clips.length
+          ? clips[currentClipIndex].name
+          : "";
+      const preferredClipToken = clipStartToken(previousClipName);
+      setStatus("Loading camera recordings...");
+      loadDates({
+        preferredDate: previousDate,
+        preferredClipToken,
+      }).catch((error) => setStatus(error.message));
+    });
+
+    dateSelect.addEventListener("change", () => {
+      setStatus("Loading clips...");
+      loadClips()
+        .then(() => populateRangeDates())
+        .catch((error) => setStatus(error.message));
+    });
+
+    clipSelect.addEventListener("change", () => {
+      const index = clips.findIndex((item) => item.name === clipSelect.value);
+      if (index >= 0) {
+        renderClipAtIndex(index);
+        rangeStartDateSelect.value = dateSelect.value;
+        rangeEndDateSelect.value = dateSelect.value;
+        rangeStartClipSelect.value = clipSelect.value;
+        rangeEndClipSelect.value = clipSelect.value;
+        setStatus("Clip loaded.");
+      }
+    });
+
+    speedSelect.addEventListener("change", () => {
+      applyPlaybackRate();
+      setStatus(`Playback speed set to ${speedSelect.value}x.`);
+    });
+
+    prevButton.addEventListener("click", () => {
+      moveClip(-1);
+    });
+
+    nextButton.addEventListener("click", () => {
+      moveClip(1);
+    });
+
+    rangeStartDateSelect.addEventListener("change", () => {
+      refreshRangeClipSelects().catch((error) => setStatus(error.message));
+    });
+
+    rangeEndDateSelect.addEventListener("change", () => {
+      refreshRangeClipSelects().catch((error) => setStatus(error.message));
+    });
+
+    downloadButton.addEventListener("click", () => {
+      if (currentClipIndex < 0 || currentClipIndex >= clips.length) {
+        setStatus("No clip selected for download.");
+        return;
+      }
+
+      const clip = clips[currentClipIndex];
+      if (!includeSyncCheckbox.checked) {
+        triggerDownload(`${clip.url}?download=1`);
+        setStatus(`Downloading ${clip.name}`);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        camera_id: cameraSelect.value,
+        start_date: dateSelect.value,
+        start_name: clip.name,
+        end_date: dateSelect.value,
+        end_name: clip.name,
+        include_sync: "1",
+      });
+      triggerDownload(`/download/bundle?${params.toString()}`);
+      setStatus(`Downloading ${clip.name} with same-time clips.`);
+    });
+
+    downloadRangeButton.addEventListener("click", () => {
+      const validation = compareRange();
+      if (!validation.ok) {
+        setStatus(validation.message);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        camera_id: cameraSelect.value,
+        start_date: rangeStartDateSelect.value,
+        start_name: rangeStartClipSelect.value,
+        end_date: rangeEndDateSelect.value,
+        end_name: rangeEndClipSelect.value,
+        include_sync: includeSyncCheckbox.checked ? "1" : "0",
+      });
+      triggerDownload(`/download/bundle?${params.toString()}`);
+      setStatus("Downloading selected clip range as ZIP.");
+    });
+
+    clipVideo.addEventListener("loadedmetadata", () => {
+      applyPlaybackRate();
+    });
+
+    clipVideo.addEventListener("ended", () => {
+      if (!autoNextCheckbox.checked) {
+        return;
+      }
+      if (currentClipIndex + 1 >= clips.length) {
+        setStatus("Reached the last clip for the selected date.");
+        return;
+      }
+      renderClipAtIndex(currentClipIndex + 1, { autoplay: true });
+      setStatus("Playing next clip automatically.");
+    });
+
+    downloadButton.disabled = true;
+    downloadRangeButton.disabled = true;
+    init().catch((error) => setStatus(error.message));
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "storage": {
+    "record_root": "~/data/sharedata/cctv-rec-db/",
+    "max_storage_gb": 120,
+    "max_age_days": 14,
+    "cleanup_interval_seconds": 60
+  },
+  "recorder": {
+    "ffmpeg_path": "ffmpeg",
+    "segment_seconds": 60,
+    "target_fps": 5,
+    "rtsp_transport": "tcp",
+    "ffmpeg_loglevel": "warning",
+    "video_codec": "libx264",
+    "video_extension": "mp4",
+    "encoder_preset": "veryfast",
+    "crf": 23,
+    "reconnect_delay_seconds": 5
+  },
+  "replayer": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "debug": false
+  },
+  "cameras": [
+    {
+      "id": "cam-01",
+      "name": "Camera01",
+      "enabled": true,
+      "rtsp_url": "rtsp://username:password@192.168.0.10:554/stream1"
+    },
+    {
+      "id": "cam-02",
+      "name": "Camera02",
+      "enabled": false,
+      "rtsp_url": "rtsp://username:password@192.168.0.11:554/stream1"
+    }
+  ]
+}

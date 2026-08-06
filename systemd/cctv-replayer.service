@@ -1,0 +1,16 @@
+[Unit]
+Description=CCTV NVR Replayer
+After=network-online.target cctv-recorder.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__PROJECT_ROOT__
+ExecStart=__PROJECT_ROOT__/bin/run_replayer.sh
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

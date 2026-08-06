@@ -1,0 +1,4 @@
+[Unit]
+Description=CCTV NVR Stack
+Wants=cctv-recorder.service cctv-replayer.service
+After=cctv-recorder.service cctv-replayer.service
