@@ -6,6 +6,7 @@ import signal
 import subprocess
 import threading
 import time
+from datetime import datetime
 
 from common import (
     build_video_segment_pattern,
@@ -60,6 +61,9 @@ class CameraRecorder(threading.Thread):
                 self.stop_event.wait(self.reconnect_delay)
 
     def _start_ffmpeg(self) -> subprocess.Popen | None:
+        if not self._ensure_output_directory():
+            return None
+
         output_pattern = build_video_segment_pattern(
             self.record_root,
             self.camera["id"],
@@ -83,6 +87,23 @@ class CameraRecorder(threading.Thread):
                 error,
             )
             return None
+
+    def _ensure_output_directory(self) -> bool:
+        output_directory = (
+            self.record_root
+            / self.camera["id"]
+            / datetime.now().strftime("%Y-%m-%d")
+        )
+        try:
+            output_directory.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            LOGGER.error(
+                "Failed to create recording directory for camera %s: %s",
+                self.camera["id"],
+                error,
+            )
+            return False
+        return True
 
     def _build_ffmpeg_command(self, output_pattern: str) -> list[str]:
         return [
@@ -117,8 +138,6 @@ class CameraRecorder(threading.Thread):
             "1",
             "-strftime",
             "1",
-            "-strftime_mkdir",
-            "1",
             "-segment_format",
             "mp4",
             "-segment_format_options",
@@ -128,6 +147,9 @@ class CameraRecorder(threading.Thread):
 
     def _wait_for_process(self, process: subprocess.Popen) -> None:
         while not self.stop_event.is_set():
+            # FFmpeg's segment muxer expands the date in the path, but does not
+            # create the expanded directory. Keep it present across midnight.
+            self._ensure_output_directory()
             return_code = process.poll()
             if return_code is not None:
                 if return_code == 0:
