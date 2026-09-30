@@ -5,7 +5,7 @@ Simple Python-based CCTV NVR scaffold for RTSP cameras.
 The project provides:
 
 - `recorder.py`: connects to multiple RTSP cameras and saves 1-minute H.264 MP4 clips with `ffmpeg`
-- `replayer.py`: Flask-based replay server for browsing and downloading recorded clips
+- `replayer.py`: Flask-based viewer with live RTSP viewing plus recorded-clip replay
 - `setting.example.json`: example camera and storage configuration
 
 ## File layout
@@ -13,11 +13,12 @@ The project provides:
 - `common.py`: shared config and cleanup helpers
 - `recorder.py`: multi-camera recorder
 - `replayer.py`: replay web server
-- `templates/index.html`: replay UI
+- `templates/index.html`: live and replay viewer UI
 - `setting.example.json`: example camera, storage, and server settings
 - `requirements.txt`: Python dependencies
 - `bin/run_recorder.sh`: recorder launcher for systemd
 - `bin/run_replayer.sh`: replayer launcher for systemd
+- `recorder_healthcheck.py`: detects a stopped or stalled recorder and restarts it
 - `systemd/`: systemd unit templates
 - `install_systemd.sh`: installs systemd services into `/etc/systemd/system`
 
@@ -45,7 +46,7 @@ Edit `setting.json` yourself for:
 - camera ID and display name
 - storage path and retention policy
 - `ffmpeg` path, RTSP transport, FPS, codec, preset, CRF, segment length
-- replay server host and port
+- replay server host and port, plus optional live-view settings
 
 Current default recorder values:
 
@@ -104,13 +105,29 @@ Start the replay server:
 python3 replayer.py
 ```
 
-Open the replay page in a browser:
+Open the viewer in a browser:
 
 ```text
 http://localhost:8080
 ```
 
-## Replayer features
+## Viewer modes
+
+The viewer has two modes:
+
+- **Replay** (the default): browse, play, and download recorded MP4 clips.
+- **Live**: view the selected camera's current RTSP feed.
+
+Live view is relayed through the server as MJPEG because web browsers cannot
+play RTSP URLs directly. RTSP credentials therefore remain in `setting.json`
+and are never sent to the browser. Each open live-view tab uses one FFmpeg
+decoder process; close the tab or switch back to Replay to stop it.
+
+Live-view settings are under `replayer.live`. `width: 0` preserves the source
+width; setting a positive width can reduce CPU and network usage. Lower
+`jpeg_quality` values produce higher-quality, larger frames (FFmpeg range 2–31).
+
+## Replay features
 
 - Browse clips by camera and date
 - Play clips at `0.5x` to `4.0x`
@@ -119,13 +136,26 @@ http://localhost:8080
 - Download a selected clip range as a ZIP archive
 - Optionally include same-time clips from other configured cameras in downloads
 
-## systemd service
+## systemd services
 
-Install and start both services:
+Install and start both services (also enables them at boot):
 
 ```bash
-chmod +x bin/run_recorder.sh bin/run_replayer.sh install_systemd.sh
+chmod +x bin/run_recorder.sh bin/run_replayer.sh bin/run_recorder_healthcheck.sh install_systemd.sh
 ./install_systemd.sh
+```
+
+Start services after they have been installed:
+
+```bash
+sudo systemctl start cctv-recorder.service cctv-replayer.service
+```
+
+After changing `setting.json`, updating the application, or enabling Live mode,
+restart the viewer service:
+
+```bash
+sudo systemctl restart cctv-replayer.service
 ```
 
 Check status:
@@ -145,8 +175,22 @@ sudo journalctl -u cctv-replayer.service -f
 Restart services:
 
 ```bash
-sudo systemctl restart cctv-recorder.service
-sudo systemctl restart cctv-replayer.service
+sudo systemctl restart cctv-recorder.service cctv-replayer.service
+```
+
+### Recorder health check
+
+`cctv-recorder-healthcheck.timer` runs every five minutes. It restarts
+`cctv-recorder.service` when either the service is not active or an enabled
+camera has not updated an MP4 recording for five minutes. The check only scans
+today's and yesterday's recording directories, so it does not traverse the
+full archive.
+
+Check its result with:
+
+```bash
+sudo systemctl status cctv-recorder-healthcheck.timer
+sudo journalctl -u cctv-recorder-healthcheck.service -n 50 --no-pager
 ```
 
 Stop or disable:

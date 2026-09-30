@@ -73,6 +73,19 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
+    .mode-switch {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .mode-button.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #111827;
+      font-weight: 700;
+    }
+
     .controls {
       display: flex;
       flex-wrap: wrap;
@@ -142,6 +155,32 @@
       display: block;
     }
 
+    .live-image {
+      width: 100%;
+      max-height: 65vh;
+      min-height: 240px;
+      border-radius: 12px;
+      background: #000;
+      display: none;
+      object-fit: contain;
+    }
+
+    body.live-mode .replay-only {
+      display: none !important;
+    }
+
+    body.live-mode .toolbar {
+      grid-template-columns: 1fr;
+    }
+
+    body.live-mode .live-image {
+      display: block;
+    }
+
+    body.live-mode #clipVideo {
+      display: none;
+    }
+
     .meta {
       display: flex;
       gap: 10px;
@@ -176,27 +215,32 @@
     }
   </style>
 </head>
-<body>
+<body data-live-enabled="{{ 'true' if live_enabled else 'false' }}">
   <div class="wrap">
     <div class="panel">
-      <h1>CCTV Replayer</h1>
+      <h1>CCTV NVR</h1>
+
+      <div class="mode-switch" aria-label="Viewer mode">
+        <button type="button" id="replayModeButton" class="mode-button active" aria-pressed="true">Replay</button>
+        <button type="button" id="liveModeButton" class="mode-button" aria-pressed="false">Live</button>
+      </div>
 
       <div class="toolbar">
         <div>
           <label for="cameraSelect">Camera</label>
           <select id="cameraSelect"></select>
         </div>
-        <div>
+        <div class="replay-only">
           <label for="dateSelect">Date</label>
           <select id="dateSelect"></select>
         </div>
-        <div>
+        <div class="replay-only">
           <label for="clipSelect">Clip Start</label>
           <select id="clipSelect"></select>
         </div>
       </div>
 
-      <div class="controls">
+      <div class="controls replay-only">
         <div>
           <label for="speedSelect">Playback Speed</label>
           <select id="speedSelect">
@@ -224,6 +268,7 @@
 
       <div class="viewer">
         <video id="clipVideo" controls playsinline preload="metadata"></video>
+        <img id="liveImage" class="live-image" alt="Live camera feed">
         <div class="meta">
           <div id="clipName">No clip loaded</div>
           <div id="clipCount">0 / 0</div>
@@ -231,8 +276,8 @@
         <div class="status" id="statusText"></div>
       </div>
 
-      <h2>Range Download</h2>
-      <div class="range-panel">
+      <h2 class="replay-only">Range Download</h2>
+      <div class="range-panel replay-only">
         <div class="range-grid">
           <div>
             <label for="rangeStartDateSelect">Start Date</label>
@@ -269,11 +314,14 @@
     const nextButton = document.getElementById("nextButton");
     const downloadButton = document.getElementById("downloadButton");
     const downloadRangeButton = document.getElementById("downloadRangeButton");
+    const replayModeButton = document.getElementById("replayModeButton");
+    const liveModeButton = document.getElementById("liveModeButton");
     const rangeStartDateSelect = document.getElementById("rangeStartDateSelect");
     const rangeStartClipSelect = document.getElementById("rangeStartClipSelect");
     const rangeEndDateSelect = document.getElementById("rangeEndDateSelect");
     const rangeEndClipSelect = document.getElementById("rangeEndClipSelect");
     const clipVideo = document.getElementById("clipVideo");
+    const liveImage = document.getElementById("liveImage");
     const clipName = document.getElementById("clipName");
     const clipCount = document.getElementById("clipCount");
     const statusText = document.getElementById("statusText");
@@ -281,10 +329,74 @@
     let clips = [];
     let currentClipIndex = -1;
     let dates = [];
+    let activeMode = "replay";
+    let liveEnabled = document.body.dataset.liveEnabled === "true";
     const clipCache = new Map();
 
     function setStatus(text) {
       statusText.textContent = text;
+    }
+
+    function selectedCameraName() {
+      const option = cameraSelect.options[cameraSelect.selectedIndex];
+      return option ? option.textContent : "camera";
+    }
+
+    function stopLiveStream() {
+      liveImage.removeAttribute("src");
+      delete liveImage.dataset.streamUrl;
+    }
+
+    function startLiveStream() {
+      const cameraId = cameraSelect.value;
+      if (!cameraId) {
+        stopLiveStream();
+        clipName.textContent = "No camera selected";
+        clipCount.textContent = "Live";
+        setStatus("Select a camera to start live view.");
+        return;
+      }
+
+      const streamUrl = `/live/${encodeURIComponent(cameraId)}.mjpg?cache=${Date.now()}`;
+      if (liveImage.dataset.streamUrl === streamUrl) {
+        return;
+      }
+
+      stopLiveStream();
+      liveImage.dataset.streamUrl = streamUrl;
+      liveImage.src = streamUrl;
+      clipName.textContent = `Live: ${selectedCameraName()}`;
+      clipCount.textContent = "Live";
+      setStatus("Connecting to live camera stream...");
+    }
+
+    function setMode(mode) {
+      if (mode === "live" && !liveEnabled) {
+        setStatus("Live view is disabled in setting.json.");
+        return;
+      }
+
+      activeMode = mode;
+      const isLive = mode === "live";
+      document.body.classList.toggle("live-mode", isLive);
+      replayModeButton.classList.toggle("active", !isLive);
+      liveModeButton.classList.toggle("active", isLive);
+      replayModeButton.setAttribute("aria-pressed", String(!isLive));
+      liveModeButton.setAttribute("aria-pressed", String(isLive));
+
+      if (isLive) {
+        clipVideo.pause();
+        startLiveStream();
+        return;
+      }
+
+      stopLiveStream();
+      if (currentClipIndex >= 0 && currentClipIndex < clips.length) {
+        const clip = clips[currentClipIndex];
+        clipName.textContent = clip.name;
+        clipCount.textContent = `${currentClipIndex + 1} / ${clips.length}`;
+      }
+      setStatus("Select a clip to replay recorded video.");
     }
 
     async function fetchJson(url) {
@@ -740,16 +852,27 @@
 
     async function init() {
       const data = await fetchJson("/api/cameras");
+      liveEnabled = Boolean(data.live_enabled);
+      liveModeButton.disabled = !liveEnabled;
       fillSelect(cameraSelect, data.cameras, "No cameras");
       if (data.cameras.length) {
         await loadDates();
-        setStatus("Select a clip to replay recorded video.");
+        if (activeMode === "live") {
+          startLiveStream();
+        } else {
+          setStatus("Select a clip to replay recorded video.");
+        }
       } else {
         setStatus("No enabled cameras in setting.json.");
       }
     }
 
     cameraSelect.addEventListener("change", () => {
+      if (activeMode === "live") {
+        startLiveStream();
+        return;
+      }
+
       const previousDate = dateSelect.value;
       const previousClipName =
         currentClipIndex >= 0 && currentClipIndex < clips.length
@@ -785,6 +908,14 @@
     speedSelect.addEventListener("change", () => {
       applyPlaybackRate();
       setStatus(`Playback speed set to ${speedSelect.value}x.`);
+    });
+
+    replayModeButton.addEventListener("click", () => {
+      setMode("replay");
+    });
+
+    liveModeButton.addEventListener("click", () => {
+      setMode("live");
     });
 
     prevButton.addEventListener("click", () => {
@@ -863,8 +994,23 @@
       setStatus("Playing next clip automatically.");
     });
 
+    liveImage.addEventListener("load", () => {
+      if (activeMode === "live") {
+        setStatus(`Live stream connected: ${selectedCameraName()}.`);
+      }
+    });
+
+    liveImage.addEventListener("error", () => {
+      if (activeMode === "live") {
+        setStatus("Unable to connect to live stream. Check the camera and FFmpeg logs.");
+      }
+    });
+
+    window.addEventListener("beforeunload", stopLiveStream);
+
     downloadButton.disabled = true;
     downloadRangeButton.disabled = true;
+    liveModeButton.disabled = !liveEnabled;
     init().catch((error) => setStatus(error.message));
   </script>
 </body>

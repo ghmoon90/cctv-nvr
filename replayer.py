@@ -2,26 +2,36 @@ from __future__ import annotations
 
 import argparse
 import io
+import logging
+import subprocess
+import time
 import zipfile
 from pathlib import Path
 
 from flask import (
     Flask,
+    Response,
     abort,
     jsonify,
     render_template,
     request,
     send_file,
     send_from_directory,
+    stream_with_context,
 )
 
 from common import enabled_cameras, get_record_root, is_video_file, load_config
+
+
+LOGGER = logging.getLogger("replayer")
 
 
 def create_app(config_path: str = "setting.json") -> Flask:
     config = load_config(config_path)
     record_root = get_record_root(config)
     valid_camera_ids = {camera["id"] for camera in enabled_cameras(config)}
+    camera_by_id = {camera["id"]: camera for camera in enabled_cameras(config)}
+    live_config = config["replayer"]["live"]
     app = Flask(__name__)
     app.config["APP_CONFIG"] = config
     app.config["RECORD_ROOT"] = record_root
@@ -29,7 +39,11 @@ def create_app(config_path: str = "setting.json") -> Flask:
     @app.get("/")
     def index():
         cameras = enabled_cameras(config)
-        return render_template("index.html", cameras=cameras)
+        return render_template(
+            "index.html",
+            cameras=cameras,
+            live_enabled=bool(live_config["enabled"]),
+        )
 
     @app.get("/api/cameras")
     def api_cameras():
@@ -37,7 +51,21 @@ def create_app(config_path: str = "setting.json") -> Flask:
             {"id": camera["id"], "name": camera.get("name", camera["id"])}
             for camera in enabled_cameras(config)
         ]
-        return jsonify({"cameras": cameras})
+        return jsonify({"cameras": cameras, "live_enabled": bool(live_config["enabled"])})
+
+    @app.get("/live/<camera_id>.mjpg")
+    def live_stream(camera_id: str):
+        if not live_config["enabled"] or camera_id not in valid_camera_ids:
+            abort(404)
+
+        return Response(
+            stream_with_context(_live_mjpeg_stream(camera_by_id[camera_id], live_config)),
+            mimetype="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
 
     @app.get("/api/dates")
     def api_dates():
@@ -159,9 +187,119 @@ def create_app(config_path: str = "setting.json") -> Flask:
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "record_root": str(record_root)})
+        return jsonify(
+            {
+                "status": "ok",
+                "record_root": str(record_root),
+                "live_enabled": bool(live_config["enabled"]),
+            }
+        )
 
     return app
+
+
+def _live_mjpeg_stream(camera: dict, live_config: dict):
+    """Yield a browser-compatible MJPEG stream from one camera's RTSP feed.
+
+    Each connected browser gets its own FFmpeg process. This keeps the endpoint
+    simple and makes disconnect cleanup reliable; it is suitable for the small
+    number of simultaneous viewers expected by this NVR scaffold.
+    """
+    reconnect_delay = max(float(live_config["reconnect_delay_seconds"]), 0.1)
+
+    while True:
+        process = _start_live_ffmpeg(camera, live_config)
+        if process is None:
+            return
+
+        try:
+            if process.stdout is None:
+                return
+
+            while True:
+                chunk = process.stdout.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            _stop_live_ffmpeg(process, camera["id"])
+
+        LOGGER.warning("Live stream ended for camera %s; reconnecting", camera["id"])
+        time.sleep(reconnect_delay)
+
+
+def _start_live_ffmpeg(camera: dict, live_config: dict) -> subprocess.Popen | None:
+    command = _build_live_ffmpeg_command(camera, live_config)
+    LOGGER.info("Starting live stream for camera %s", camera["id"])
+    try:
+        return subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            bufsize=0,
+        )
+    except FileNotFoundError:
+        LOGGER.error("ffmpeg binary not found: %s", live_config["ffmpeg_path"])
+    except OSError as error:
+        LOGGER.error("Failed to start live stream for camera %s: %s", camera["id"], error)
+    return None
+
+
+def _build_live_ffmpeg_command(camera: dict, live_config: dict) -> list[str]:
+    target_fps = max(float(live_config["target_fps"]), 1.0)
+    jpeg_quality = min(max(int(live_config["jpeg_quality"]), 2), 31)
+    width = max(int(live_config["width"]), 0)
+    video_filter = f"fps={target_fps}"
+    if width:
+        video_filter += f",scale={width}:-2"
+
+    return [
+        str(live_config["ffmpeg_path"]),
+        "-hide_banner",
+        "-loglevel",
+        str(live_config["ffmpeg_loglevel"]),
+        "-nostdin",
+        "-rtsp_transport",
+        str(live_config["rtsp_transport"]),
+        "-fflags",
+        "nobuffer",
+        "-flags",
+        "low_delay",
+        "-analyzeduration",
+        "0",
+        "-probesize",
+        "32",
+        "-i",
+        str(camera["rtsp_url"]),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-vf",
+        video_filter,
+        "-c:v",
+        "mjpeg",
+        "-q:v",
+        str(jpeg_quality),
+        "-f",
+        "mpjpeg",
+        "-boundary_tag",
+        "frame",
+        "pipe:1",
+    ]
+
+
+def _stop_live_ffmpeg(process: subprocess.Popen, camera_id: str) -> None:
+    if process.poll() is not None:
+        return
+
+    LOGGER.info("Stopping live stream for camera %s", camera_id)
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        LOGGER.warning("Live FFmpeg did not terminate for camera %s; killing", camera_id)
+        process.kill()
+        process.wait(timeout=5)
 
 
 def _clip_label_from_path(path) -> str:

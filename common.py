@@ -43,6 +43,25 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
     config["replayer"].setdefault("host", "0.0.0.0")
     config["replayer"].setdefault("port", 8080)
     config["replayer"].setdefault("debug", False)
+    config["replayer"].setdefault("live", {})
+
+    live_config = config["replayer"]["live"]
+    if not isinstance(live_config, dict):
+        raise ValueError("replayer.live must be an object")
+
+    # Live view is served as MJPEG because browsers do not support RTSP
+    # directly. Defaults reuse the recorder connection settings so an existing
+    # setting.json gains live view without needing new configuration.
+    live_config.setdefault("enabled", True)
+    live_config.setdefault("ffmpeg_path", config["recorder"]["ffmpeg_path"])
+    live_config.setdefault("rtsp_transport", config["recorder"]["rtsp_transport"])
+    live_config.setdefault("ffmpeg_loglevel", config["recorder"]["ffmpeg_loglevel"])
+    live_config.setdefault("target_fps", config["recorder"]["target_fps"])
+    live_config.setdefault("jpeg_quality", 5)
+    live_config.setdefault("width", 0)
+    live_config.setdefault(
+        "reconnect_delay_seconds", config["recorder"]["reconnect_delay_seconds"]
+    )
 
     return config
 
