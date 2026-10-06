@@ -331,6 +331,7 @@
     let dates = [];
     let activeMode = "replay";
     let liveEnabled = document.body.dataset.liveEnabled === "true";
+    let camerasById = new Map();
     const clipCache = new Map();
 
     function setStatus(text) {
@@ -340,6 +341,22 @@
     function selectedCameraName() {
       const option = cameraSelect.options[cameraSelect.selectedIndex];
       return option ? option.textContent : "camera";
+    }
+
+    function selectedCameraSupportsLive() {
+      const camera = camerasById.get(cameraSelect.value);
+      return liveEnabled && Boolean(camera && camera.live_enabled);
+    }
+
+    function liveUnavailableMessage() {
+      if (!liveEnabled) {
+        return "Live view is disabled in setting.json.";
+      }
+      return "Live display is disabled for the selected camera in setting.json.";
+    }
+
+    function updateLiveModeAvailability() {
+      liveModeButton.disabled = !selectedCameraSupportsLive();
     }
 
     function stopLiveStream() {
@@ -357,6 +374,14 @@
         return;
       }
 
+      if (!selectedCameraSupportsLive()) {
+        stopLiveStream();
+        clipName.textContent = "Live display unavailable";
+        clipCount.textContent = "Live";
+        setStatus(liveUnavailableMessage());
+        return;
+      }
+
       const streamUrl = `/live/${encodeURIComponent(cameraId)}.mjpg?cache=${Date.now()}`;
       if (liveImage.dataset.streamUrl === streamUrl) {
         return;
@@ -371,8 +396,8 @@
     }
 
     function setMode(mode) {
-      if (mode === "live" && !liveEnabled) {
-        setStatus("Live view is disabled in setting.json.");
+      if (mode === "live" && !selectedCameraSupportsLive()) {
+        setStatus(liveUnavailableMessage());
         return;
       }
 
@@ -853,8 +878,9 @@
     async function init() {
       const data = await fetchJson("/api/cameras");
       liveEnabled = Boolean(data.live_enabled);
-      liveModeButton.disabled = !liveEnabled;
+      camerasById = new Map(data.cameras.map((camera) => [camera.id, camera]));
       fillSelect(cameraSelect, data.cameras, "No cameras");
+      updateLiveModeAvailability();
       if (data.cameras.length) {
         await loadDates();
         if (activeMode === "live") {
@@ -863,11 +889,12 @@
           setStatus("Select a clip to replay recorded video.");
         }
       } else {
-        setStatus("No enabled cameras in setting.json.");
+        setStatus("No cameras are enabled for recording or live display in setting.json.");
       }
     }
 
     cameraSelect.addEventListener("change", () => {
+      updateLiveModeAvailability();
       if (activeMode === "live") {
         startLiveStream();
         return;
@@ -1010,7 +1037,7 @@
 
     downloadButton.disabled = true;
     downloadRangeButton.disabled = true;
-    liveModeButton.disabled = !liveEnabled;
+    updateLiveModeAvailability();
     init().catch((error) => setStatus(error.message));
   </script>
 </body>

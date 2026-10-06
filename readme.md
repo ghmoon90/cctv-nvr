@@ -44,6 +44,7 @@ Edit `setting.json` yourself for:
 - RTSP address
 - user ID / password
 - camera ID and display name
+- independent recording and live-display enablement per camera
 - storage path and retention policy
 - `ffmpeg` path, RTSP transport, FPS, codec, preset, CRF, segment length
 - replay server host and port, plus optional live-view settings
@@ -66,10 +67,19 @@ Example camera entry:
 {
   "id": "cam01",
   "name": "Front Gate",
-  "enabled": true,
+  "recording_enabled": true,
+  "live_enabled": true,
   "rtsp_url": "rtsp://username:password@192.168.0.10:554/stream1"
 }
 ```
+
+Set `recording_enabled` to `false` and `live_enabled` to `true` for a camera
+that should appear in Live view without saving any clips. The legacy `enabled`
+setting remains supported for existing configurations; when the new settings
+are absent, it controls both recording and live display.
+
+`replayer.live.enabled` is still the global master switch for Live view and
+must also be `true` for any per-camera live display to be available.
 
 Create your local config from the example before running:
 
@@ -151,11 +161,11 @@ Start services after they have been installed:
 sudo systemctl start cctv-recorder.service cctv-replayer.service
 ```
 
-After changing `setting.json`, updating the application, or enabling Live mode,
-restart the viewer service:
+After changing `setting.json` or updating the application, restart both
+services so recording and live-display changes take effect:
 
 ```bash
-sudo systemctl restart cctv-replayer.service
+sudo systemctl restart cctv-recorder.service cctv-replayer.service
 ```
 
 Check status:
@@ -181,10 +191,10 @@ sudo systemctl restart cctv-recorder.service cctv-replayer.service
 ### Recorder health check
 
 `cctv-recorder-healthcheck.timer` runs every five minutes. It restarts
-`cctv-recorder.service` when either the service is not active or an enabled
-camera has not updated an MP4 recording for five minutes. The check only scans
-today's and yesterday's recording directories, so it does not traverse the
-full archive.
+`cctv-recorder.service` when either the service is not active or a
+recording-enabled camera has not updated an MP4 recording for five minutes.
+The check only scans today's and yesterday's recording directories, so it does
+not traverse the full archive.
 
 Check its result with:
 

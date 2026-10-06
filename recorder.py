@@ -11,10 +11,10 @@ from datetime import datetime
 from common import (
     build_video_segment_pattern,
     cleanup_recordings,
-    enabled_cameras,
     get_record_root,
     gigabytes_to_bytes,
     load_config,
+    recording_enabled_cameras,
 )
 
 
@@ -241,7 +241,7 @@ def main() -> None:
 
     workers = [
         CameraRecorder(camera, record_root, config["recorder"], stop_event)
-        for camera in enabled_cameras(config)
+        for camera in recording_enabled_cameras(config)
     ]
     cleaner = threading.Thread(
         target=cleanup_worker,

@@ -35,13 +35,15 @@
     {
       "id": "cam-01",
       "name": "Camera01",
-      "enabled": true,
+      "recording_enabled": true,
+      "live_enabled": true,
       "rtsp_url": "rtsp://username:password@192.168.0.10:554/stream1"
     },
     {
       "id": "cam-02",
       "name": "Camera02",
-      "enabled": false,
+      "recording_enabled": false,
+      "live_enabled": true,
       "rtsp_url": "rtsp://username:password@192.168.0.11:554/stream1"
     }
   ]

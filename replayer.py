@@ -20,7 +20,13 @@ from flask import (
     stream_with_context,
 )
 
-from common import enabled_cameras, get_record_root, is_video_file, load_config
+from common import (
+    get_record_root,
+    is_video_file,
+    live_enabled_cameras,
+    load_config,
+    recording_enabled_cameras,
+)
 
 
 LOGGER = logging.getLogger("replayer")
@@ -29,8 +35,24 @@ LOGGER = logging.getLogger("replayer")
 def create_app(config_path: str = "setting.json") -> Flask:
     config = load_config(config_path)
     record_root = get_record_root(config)
-    valid_camera_ids = {camera["id"] for camera in enabled_cameras(config)}
-    camera_by_id = {camera["id"]: camera for camera in enabled_cameras(config)}
+    recording_camera_by_id = {
+        camera["id"]: camera for camera in recording_enabled_cameras(config)
+    }
+    live_camera_by_id = {
+        camera["id"]: camera for camera in live_enabled_cameras(config)
+    }
+    recording_camera_ids = set(recording_camera_by_id)
+    live_camera_ids = set(live_camera_by_id)
+    visible_cameras = [
+        {
+            "id": camera["id"],
+            "name": camera.get("name", camera["id"]),
+            "recording_enabled": camera["id"] in recording_camera_ids,
+            "live_enabled": camera["id"] in live_camera_ids,
+        }
+        for camera in config["cameras"]
+        if camera["id"] in recording_camera_ids or camera["id"] in live_camera_ids
+    ]
     live_config = config["replayer"]["live"]
     app = Flask(__name__)
     app.config["APP_CONFIG"] = config
@@ -38,28 +60,27 @@ def create_app(config_path: str = "setting.json") -> Flask:
 
     @app.get("/")
     def index():
-        cameras = enabled_cameras(config)
         return render_template(
             "index.html",
-            cameras=cameras,
+            cameras=visible_cameras,
             live_enabled=bool(live_config["enabled"]),
         )
 
     @app.get("/api/cameras")
     def api_cameras():
-        cameras = [
-            {"id": camera["id"], "name": camera.get("name", camera["id"])}
-            for camera in enabled_cameras(config)
-        ]
-        return jsonify({"cameras": cameras, "live_enabled": bool(live_config["enabled"])})
+        return jsonify(
+            {"cameras": visible_cameras, "live_enabled": bool(live_config["enabled"])}
+        )
 
     @app.get("/live/<camera_id>.mjpg")
     def live_stream(camera_id: str):
-        if not live_config["enabled"] or camera_id not in valid_camera_ids:
+        if not live_config["enabled"] or camera_id not in live_camera_ids:
             abort(404)
 
         return Response(
-            stream_with_context(_live_mjpeg_stream(camera_by_id[camera_id], live_config)),
+            stream_with_context(
+                _live_mjpeg_stream(live_camera_by_id[camera_id], live_config)
+            ),
             mimetype="multipart/x-mixed-replace; boundary=frame",
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -70,7 +91,7 @@ def create_app(config_path: str = "setting.json") -> Flask:
     @app.get("/api/dates")
     def api_dates():
         camera_id = request.args.get("camera_id", "").strip()
-        if camera_id not in valid_camera_ids:
+        if camera_id not in recording_camera_ids:
             return jsonify({"dates": []})
 
         dates = []
@@ -86,7 +107,7 @@ def create_app(config_path: str = "setting.json") -> Flask:
     def api_clips():
         camera_id = request.args.get("camera_id", "").strip()
         date = request.args.get("date", "").strip()
-        if camera_id not in valid_camera_ids:
+        if camera_id not in recording_camera_ids:
             return jsonify({"clips": []})
 
         day_dir = record_root / camera_id / date
@@ -113,7 +134,7 @@ def create_app(config_path: str = "setting.json") -> Flask:
 
     @app.get("/recordings/<camera_id>/<date>/<path:filename>")
     def recording_file(camera_id: str, date: str, filename: str):
-        if camera_id not in valid_camera_ids:
+        if camera_id not in recording_camera_ids:
             abort(404)
 
         day_dir = (record_root / camera_id / date).resolve()
@@ -144,12 +165,12 @@ def create_app(config_path: str = "setting.json") -> Flask:
             "on",
         }
 
-        if camera_id not in valid_camera_ids:
+        if camera_id not in recording_camera_ids:
             abort(404)
 
         bundle_paths = _collect_bundle_paths(
             record_root=record_root,
-            camera_ids=sorted(valid_camera_ids),
+            camera_ids=sorted(recording_camera_ids),
             camera_id=camera_id,
             start_date=start_date,
             start_name=start_name,

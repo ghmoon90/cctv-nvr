@@ -178,10 +178,28 @@ def prune_empty_directories(root: Path) -> None:
             directory.rmdir()
 
 
+def recording_enabled_cameras(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return cameras configured to save recordings."""
+    return _cameras_enabled_for(config, "recording_enabled")
+
+
+def live_enabled_cameras(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return cameras configured to appear in the live viewer."""
+    return _cameras_enabled_for(config, "live_enabled")
+
+
 def enabled_cameras(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Backward-compatible alias for cameras enabled to record."""
+    return recording_enabled_cameras(config)
+
+
+def _cameras_enabled_for(config: dict[str, Any], setting_name: str) -> list[dict[str, Any]]:
     cameras = []
     for item in config["cameras"]:
-        if item.get("enabled", True):
+        # Older configurations used one flag for both functions. Retain that
+        # behavior unless the new, feature-specific setting is present.
+        enabled = item.get(setting_name, item.get("enabled", True))
+        if enabled:
             cameras.append(item)
     return cameras
 
